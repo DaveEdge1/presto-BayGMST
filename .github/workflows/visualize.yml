@@ -181,6 +181,11 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # Auto-enable Pages on first deploy. If this fails with "Resource
+          # not accessible by integration", the repo owner must enable Pages
+          # manually one time: Settings -> Pages -> Source = "GitHub Actions".
+          enablement: true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

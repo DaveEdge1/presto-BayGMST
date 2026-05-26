@@ -248,7 +248,9 @@ jobs:
           git config user.email "actions@github.com"
           # Only commit files under 100MB. NetCDFs from BayGMST are tiny
           # (1D timeseries), so this should always include the .nc.
-          find results/ -type f -size -100M | while read f; do git add "$f"; done
+          # -f because results/ is in .gitignore (local dev dir); CI is
+          # the only place that publishes its contents.
+          find results/ -type f -size -100M | while read f; do git add -f "$f"; done
           if git diff --staged --quiet; then
             echo "No files under 100MB to commit"
           else
