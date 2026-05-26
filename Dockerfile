@@ -10,8 +10,12 @@ FROM rocker/r-ver:4.4.1
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC \
-    CMDSTAN=/opt/cmdstan \
     R_LIBS_USER=/usr/local/lib/R/site-library
+# NOTE: do NOT set CMDSTAN here. cmdstanr's .onLoad reads $CMDSTAN at
+# package-load time and crashes ("argument is of length zero") if the dir
+# exists but is empty — which is the state during the install layer. We
+# let cmdstanr fall back to its default ~/.cmdstan/cmdstan-X.Y.Z location;
+# scripts/run_baygmst.R retrieves the actual path via cmdstanr::cmdstan_path().
 
 # ── System deps ─────────────────────────────────────────────────────────────
 # build-essential / gfortran / cmake : Stan model compilation + RcppParallel
@@ -31,9 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install cmdstan via cmdstanr at build time so the toolchain + headers are
 # baked into the image. Models still recompile on first sample() call (Stan
 # emits per-model .o/.exe), but the cmdstan headers + stanc are pre-built.
-RUN mkdir -p "$CMDSTAN" && \
-    R -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', getOption('repos')))" && \
-    R -e "cmdstanr::install_cmdstan(dir = Sys.getenv('CMDSTAN'), cores = 2, overwrite = TRUE)" && \
+RUN R -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', getOption('repos')))" && \
+    R -e "cmdstanr::install_cmdstan(cores = 2, overwrite = TRUE)" && \
     R -e "cat('cmdstan path:', cmdstanr::cmdstan_path(), '\n')"
 
 # ── R packages used by BayGMST_v1.0.R + utils/PAGES2k_reducedProxy_UNSC.R ───
