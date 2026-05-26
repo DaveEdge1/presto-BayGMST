@@ -14,7 +14,7 @@
 # convert the LiPDverse pickle into the PAGES2k-style proxy matrix the
 # R reducer expects, then runs utils/PAGES2k_reducedProxy_UNSC.R to
 # produce RPind.csv.
-ptype: "ALL_cached_Barboza"   # "ALL", "ALL_cached_Barboza", "lake", "speleothem", "ice", "borehole", "tree", "documents", "hybrid", "marine", "coral", "bivalve"
+ptype: "ALL"                  # "ALL", "ALL_cached_Barboza", "lake", "speleothem", "ice", "borehole", "tree", "documents", "hybrid", "marine", "coral", "bivalve"
 
 # Method used to choose the reduced-proxy CSV (only relevant for the
 # cached Barboza path) or to compute a new RP from the LiPD-derived
