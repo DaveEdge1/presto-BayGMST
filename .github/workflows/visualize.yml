@@ -80,6 +80,13 @@ jobs:
       contents: write
       pages: write
       id-token: write
+      # administration: write is needed to PATCH /repos/{owner}/{repo}.homepage
+      # so the About-section URL is populated after the first deploy. The
+      # workflow GITHUB_TOKEN only carries this scope when the repo's Actions
+      # permissions allow it (Settings -> Actions -> General -> Workflow
+      # permissions = "Read and write"). If it's not allowed, the homepage
+      # update step degrades to a printed warning (continue-on-error: true).
+      administration: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -195,3 +202,30 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Set repo About-section homepage URL
+        # GitHub doesn't auto-populate the About-section URL from a Pages
+        # deployment, even though Settings -> Pages shows it. PATCH the
+        # repo's `homepage` field directly. Best-effort: if the workflow
+        # GITHUB_TOKEN lacks Administration scope, log + continue.
+        continue-on-error: true
+        env:
+          GH_TOKEN:  ${{ github.token }}
+          PAGE_URL:  ${{ steps.deployment.outputs.page_url }}
+        run: |
+          if [ -z "$PAGE_URL" ]; then
+            echo "No page_url from deploy step; nothing to set."
+            exit 0
+          fi
+          echo "Setting About-section homepage to: $PAGE_URL"
+          # gh repo edit needs the URL trimmed of trailing slashes for the
+          # About-card link to render cleanly.
+          gh repo edit "${{ github.repository }}" --homepage "${PAGE_URL%/}" || {
+            echo "::warning::Could not update repo homepage. Either the workflow"
+            echo "::warning::GITHUB_TOKEN lacks 'administration: write' (see Settings"
+            echo "::warning::-> Actions -> General -> Workflow permissions) or the"
+            echo "::warning::repo policy disallows it. Set it manually via the gear"
+            echo "::warning::icon next to 'About'."
+            exit 1
+          }
+          echo "About-section homepage set."
