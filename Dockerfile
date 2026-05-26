@@ -31,7 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install cmdstan via cmdstanr at build time so the toolchain + headers are
 # baked into the image. Models still recompile on first sample() call (Stan
 # emits per-model .o/.exe), but the cmdstan headers + stanc are pre-built.
-RUN R -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', getOption('repos')))" && \
+RUN mkdir -p "$CMDSTAN" && \
+    R -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', getOption('repos')))" && \
     R -e "cmdstanr::install_cmdstan(dir = Sys.getenv('CMDSTAN'), cores = 2, overwrite = TRUE)" && \
     R -e "cat('cmdstan path:', cmdstanr::cmdstan_path(), '\n')"
 
