@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LiPD pickle -> PAGES2k-style proxy matrix + metadata CSVs.
+"""LiPD legacy pickle -> PAGES2k-style proxy matrix + metadata CSVs.
 
 BayGMST_R's reducer (utils/PAGES2k_reducedProxy_UNSC.R) consumes two
 sibling CSVs in data/:
@@ -13,17 +13,11 @@ sibling CSVs in data/:
       one row per proxy column in the matrix
       ptype values like "speleothem.d18O", "tree.TRW", "coral.SrCa"
 
-This adapter reads the LiPD "legacy" pickle produced upstream by
-davidedge/lipd_webapps:lipdGenerator and emits those two CSVs. The legacy
-pickle is a dict keyed by dataset name, with .paleoData entries holding the
-measurement tables; pylipd's LiPD class wraps it and exposes
-get_timeseries_essentials().
-
-For BayGMST in particular, every record contributes a SINGLE proxy column
-(one-record-one-column), unlike CFR which can split a record into multiple
-PSM-calibrated series. Mixed-archive selections from PReSto land here as a
-heterogenous bag of records; the reducer (PCR/LASSO/SPLS/SIR) handles the
-multi-variate compression.
+The lipdverse "legacy" pickle (e.g. Pages2kTemperature2_2_0.pkl) wraps a
+dict of LiPD-formatted datasets under a top-level 'D' key. We extract the
+flat list of time-series records via the original `lipd` (LiPD-utilities)
+library — the same one Holocene DA's da_load_proxies.py uses — and then
+bin each record onto the common annual year-AD grid.
 """
 
 from __future__ import annotations
@@ -37,25 +31,27 @@ import numpy as np
 import pandas as pd
 
 
-def _coerce_year(values) -> np.ndarray:
-    """Convert age/year mixed types to a 1D float year-AD array.
+def _coerce_year(years_raw, ages_raw, year_units: str = "") -> np.ndarray:
+    """Return year-AD as a float array.
 
-    LiPD records sometimes use 'age' (years BP, 1950 reference) and
-    sometimes 'year' (year AD). pylipd normalizes 'year' for us when
-    possible; if all values look like BP, convert.
+    Prefer the record's 'year' axis if present; otherwise convert 'age'
+    (years BP, 1950 reference) — same convention Holocene DA uses.
     """
-    arr = np.asarray(values, dtype=float)
-    if arr.size and np.nanmedian(arr) > 1e4:
-        # Out of plausible year-AD range; assume BP and convert.
-        arr = 1950.0 - arr
-    return arr
+    if years_raw is not None and len(years_raw):
+        arr = np.asarray(years_raw, dtype=float)
+        if "bp" in (year_units or "").lower():
+            arr = 1950.0 - arr
+        return arr
+    if ages_raw is not None and len(ages_raw):
+        return 1950.0 - np.asarray(ages_raw, dtype=float)
+    return np.array([], dtype=float)
 
 
 def _aggregate_to_annual(years: np.ndarray, vals: np.ndarray,
                          year_axis: np.ndarray) -> np.ndarray:
     """Bin a record onto the common annual axis.
 
-    LiPD records can be irregular / sub-annual / multi-decadal. We bin by
+    LiPD records can be irregular / sub-annual / multi-decadal. Bin by
     floor(year) and average within each bin; missing bins stay NaN.
     """
     mask = np.isfinite(years) & np.isfinite(vals)
@@ -70,91 +66,134 @@ def _aggregate_to_annual(years: np.ndarray, vals: np.ndarray,
     return out.to_numpy()
 
 
-def _extract_records(pkl_path: Path) -> list[dict]:
-    """Pull a flat list of records out of the legacy LiPD pickle.
+def _safe_float(x) -> float:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return float("nan")
 
-    Tries pylipd first; falls back to walking the raw dict if pylipd
-    isn't available or the pickle is already in legacy-dict form.
+
+def _extract_ts(pkl_path: Path) -> list[dict]:
+    """Load the legacy pickle and flatten to a list of time-series dicts.
+
+    Tries lipd.extractTs first (canonical path used by Holocene DA). If
+    that library or call fails — e.g. the pickle is shaped slightly
+    differently — falls back to a defensive raw walker that handles the
+    {'D': {name: ds}} layout directly.
     """
     with pkl_path.open("rb") as f:
         raw = pickle.load(f)
 
-    try:
-        from pylipd.lipd import LiPD  # type: ignore
-        L = LiPD()
-        L.load_from_dict(raw if isinstance(raw, dict) else {})
-        # essentials = dataframe of (dataSetName, paleoData_variableName,
-        # paleoData_values, year, geo_meanLat, geo_meanLon,
-        # geo_meanElev, archiveType, paleoData_proxy)
-        df = L.get_timeseries_essentials()
-        records = []
-        for _, row in df.iterrows():
-            records.append({
-                "id":     str(row.get("dataSetName", "")),
-                "var":    str(row.get("paleoData_variableName", "")),
-                "lat":    float(row.get("geo_meanLat", np.nan)),
-                "lon":    float(row.get("geo_meanLon", np.nan)),
-                "elev":   float(row.get("geo_meanElev", np.nan)),
-                "ptype":  str(row.get("archiveType", "unknown")).lower()
-                          + "." + str(row.get("paleoData_proxy", "")),
-                "years":  np.asarray(row.get("year", []), dtype=float),
-                "values": np.asarray(row.get("paleoData_values", []), dtype=float),
-            })
-        return records
-    except Exception as e:
-        print(f"[lipd_to_baygmst] pylipd path failed ({e}); falling back to raw walk", file=sys.stderr)
+    # Unwrap the 'D' container if present (Pages2kTemperature, Temp12k, etc.)
+    D = raw.get("D", raw) if isinstance(raw, dict) else raw
 
-    # Fallback: walk the raw dict. Legacy pickle shape:
-    #   { datasetName: { 'geo': {...}, 'paleoData': [ { 'measurementTable': [ {'columns': [...]} ] } ], ... } }
-    records = []
-    if isinstance(raw, dict):
-        for name, ds in raw.items():
-            geo = ((ds or {}).get("geo") or {}).get("properties") or {}
-            lat = float(geo.get("latitude", np.nan))
-            lon = float(geo.get("longitude", np.nan))
-            elev = float(geo.get("elevation", np.nan))
-            archive = str(ds.get("archiveType", "unknown")).lower()
-            for pd_entry in (ds.get("paleoData") or []):
-                for mt in (pd_entry.get("measurementTable") or []):
-                    cols = mt.get("columns") or []
-                    year_col = next((c for c in cols
-                                     if str(c.get("variableName", "")).lower() in ("year", "age")), None)
-                    if year_col is None:
+    try:
+        import lipd  # type: ignore
+        ts = lipd.extractTs(D)
+        if ts:
+            print(f"[lipd_to_baygmst] lipd.extractTs returned {len(ts)} records", file=sys.stderr)
+            return ts
+        print("[lipd_to_baygmst] lipd.extractTs returned 0 records — falling back to raw walk",
+              file=sys.stderr)
+    except Exception as e:
+        print(f"[lipd_to_baygmst] lipd.extractTs failed ({e}); falling back to raw walk",
+              file=sys.stderr)
+
+    # Raw walker — handles the legacy {'D': {datasetName: <ds>}} layout where
+    # each <ds> is itself a dict with paleoData/geo/etc. Some lipdverse pickles
+    # nest one extra layer: {'D': [<ds>, <ds>, ...]} (list of ds). Handle both.
+    out: list[dict] = []
+
+    def _flatten_ds(name: str, ds: dict) -> None:
+        if not isinstance(ds, dict):
+            return
+        geo_props = ((ds.get("geo") or {}).get("properties") or {})
+        lat  = _safe_float(geo_props.get("latitude"))
+        lon  = _safe_float(geo_props.get("longitude"))
+        elev = _safe_float(geo_props.get("elevation"))
+        archive = str(ds.get("archiveType", "unknown")).lower()
+        for pd_entry in (ds.get("paleoData") or []):
+            for mt in (pd_entry.get("measurementTable") or []):
+                cols = mt.get("columns") or []
+                year_col = next((c for c in cols
+                                 if str(c.get("variableName", "")).lower() == "year"), None)
+                age_col  = next((c for c in cols
+                                 if str(c.get("variableName", "")).lower() == "age"), None)
+                year_vals  = year_col.get("values") if year_col else None
+                age_vals   = age_col.get("values")  if age_col  else None
+                year_units = (year_col or {}).get("units", "")
+                for c in cols:
+                    if c is year_col or c is age_col:
                         continue
-                    years = _coerce_year(year_col.get("values", []))
-                    for c in cols:
-                        if c is year_col:
-                            continue
-                        vname = str(c.get("variableName", ""))
-                        if not vname:
-                            continue
-                        records.append({
-                            "id":     f"{name}__{vname}",
-                            "var":    vname,
-                            "lat":    lat,
-                            "lon":    lon,
-                            "elev":   elev,
-                            "ptype":  f"{archive}.{c.get('proxy', vname)}",
-                            "years":  years,
-                            "values": np.asarray(c.get("values", []), dtype=float),
-                        })
-    return records
+                    vname = str(c.get("variableName", ""))
+                    if not vname:
+                        continue
+                    out.append({
+                        "dataSetName": name,
+                        "paleoData_variableName": vname,
+                        "paleoData_values": c.get("values", []),
+                        "year":  year_vals,
+                        "age":   age_vals,
+                        "yearUnits":  year_units,
+                        "geo_meanLat":  lat,
+                        "geo_meanLon":  lon,
+                        "geo_meanElev": elev,
+                        "archiveType":  archive,
+                        "paleoData_proxy": c.get("proxy", c.get("proxyGeneral", vname)),
+                    })
+
+    if isinstance(D, dict):
+        for name, ds in D.items():
+            if isinstance(ds, list):
+                # {'D': {name: [ds, ds, ...]}} edge case
+                for i, sub in enumerate(ds):
+                    _flatten_ds(f"{name}__{i}", sub)
+            else:
+                _flatten_ds(name, ds)
+    elif isinstance(D, list):
+        for i, ds in enumerate(D):
+            _flatten_ds(str(ds.get("dataSetName", f"ds_{i}")) if isinstance(ds, dict) else f"ds_{i}", ds)
+
+    print(f"[lipd_to_baygmst] raw walker returned {len(out)} records", file=sys.stderr)
+    return out
 
 
 def build_csvs(pkl_path: Path, out_matrix: Path, out_metadata: Path,
                year_start: int = 1, year_end: int = 2000) -> None:
-    records = _extract_records(pkl_path)
+    records = _extract_ts(pkl_path)
     if not records:
         raise SystemExit("No records extracted from LiPD pickle — cannot proceed.")
 
     year_axis = np.arange(year_start, year_end + 1, dtype=int)
-    matrix = {"year": year_axis}
+    matrix: dict[str, np.ndarray] = {"year": year_axis}
     meta_rows: list[tuple[str, float, float, float, str]] = []
 
     seen_ids: set[str] = set()
+    dropped = 0
+
     for rec in records:
-        rid = rec["id"]
-        # Disambiguate duplicate IDs (different variables on same dataset).
+        ds_name = str(rec.get("dataSetName", "")) or "unknown"
+        var_name = str(rec.get("paleoData_variableName", ""))
+        # Skip time/depth/metadata columns that aren't proxy series.
+        vn_lower = var_name.lower()
+        if vn_lower in ("year", "age", "depth", "depthtop", "depthbottom"):
+            continue
+        # Skip records with no numeric values.
+        raw_vals = rec.get("paleoData_values")
+        if raw_vals is None:
+            continue
+        try:
+            vals = np.asarray(raw_vals, dtype=float)
+        except (TypeError, ValueError):
+            dropped += 1
+            continue
+        years = _coerce_year(rec.get("year"), rec.get("age"),
+                             year_units=str(rec.get("yearUnits", "")))
+        if years.size == 0 or vals.size == 0 or years.size != vals.size:
+            dropped += 1
+            continue
+
+        rid = f"{ds_name}__{var_name}"
         base = rid
         i = 1
         while rid in seen_ids:
@@ -162,20 +201,29 @@ def build_csvs(pkl_path: Path, out_matrix: Path, out_metadata: Path,
             rid = f"{base}__{i}"
         seen_ids.add(rid)
 
-        years = _coerce_year(rec["years"])
-        vals  = np.asarray(rec["values"], dtype=float)
-        if years.size == 0 or vals.size == 0 or years.size != vals.size:
-            continue
-
         series = _aggregate_to_annual(years, vals, year_axis)
         if not np.isfinite(series).any():
+            dropped += 1
             continue
 
+        archive = str(rec.get("archiveType", "unknown")).lower()
+        proxy   = str(rec.get("paleoData_proxy", var_name)).lower()
+        ptype   = f"{archive}.{proxy}" if proxy else archive
+
         matrix[rid] = series
-        meta_rows.append((rid, rec["lat"], rec["lon"], rec["elev"], rec["ptype"]))
+        meta_rows.append((
+            rid,
+            _safe_float(rec.get("geo_meanLat")),
+            _safe_float(rec.get("geo_meanLon")),
+            _safe_float(rec.get("geo_meanElev")),
+            ptype,
+        ))
 
     if len(matrix) <= 1:
-        raise SystemExit("All LiPD records dropped during alignment — cannot proceed.")
+        raise SystemExit(
+            f"All {len(records)} LiPD records were dropped during alignment "
+            f"({dropped} explicitly rejected) — cannot proceed."
+        )
 
     df_matrix = pd.DataFrame(matrix)
     df_meta = pd.DataFrame(meta_rows, columns=["", "lat", "lon", "elev", "ptype"])
@@ -183,8 +231,10 @@ def build_csvs(pkl_path: Path, out_matrix: Path, out_metadata: Path,
     out_matrix.parent.mkdir(parents=True, exist_ok=True)
     df_matrix.to_csv(out_matrix, index=False)
     df_meta.to_csv(out_metadata, index=False)
-    print(f"[lipd_to_baygmst] wrote {out_matrix} ({df_matrix.shape[0]} years x {df_matrix.shape[1]-1} proxies)")
-    print(f"[lipd_to_baygmst] wrote {out_metadata} ({len(meta_rows)} records)")
+    print(f"[lipd_to_baygmst] wrote {out_matrix} "
+          f"({df_matrix.shape[0]} years x {df_matrix.shape[1]-1} proxies)")
+    print(f"[lipd_to_baygmst] wrote {out_metadata} ({len(meta_rows)} records, "
+          f"{dropped} dropped during alignment)")
 
 
 def main() -> None:

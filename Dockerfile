@@ -56,13 +56,16 @@ RUN R -e "install.packages(c( \
     ), Ncpus = 2)"
 
 # ── Python deps for the LiPD adapter ────────────────────────────────────────
-# pylipd reads .lpd files; pandas/numpy/pyyaml power the pickle → proxy-matrix
-# conversion in scripts/lipd_to_baygmst.py. Isolated in a venv so we never
-# fight PEP 668 across Debian / Ubuntu base-image versions.
+# scripts/lipd_to_baygmst.py uses the original `lipd` (LiPD-utilities)
+# library — same one Holocene DA's da_load_proxies.py uses — because it
+# knows how to consume the legacy {'D': {datasetName: {...}}} pickle that
+# lipdverse archives. pylipd is the newer RDF-based lib; it doesn't read
+# this format. Isolated in a venv so we never fight PEP 668 across Debian
+# / Ubuntu base-image versions.
 RUN python3 -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir --upgrade pip && \
     /opt/venv/bin/pip install --no-cache-dir \
-        numpy pandas pyyaml scipy xarray netcdf4 pylipd
+        numpy pandas pyyaml scipy xarray netcdf4 LiPD
 ENV PATH=/opt/venv/bin:$PATH
 
 # ── App source ──────────────────────────────────────────────────────────────
