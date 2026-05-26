@@ -49,6 +49,10 @@ file.copy(
   overwrite = TRUE
 )
 
+output_dir <- Sys.getenv("BAYGMST_OUTPUT", unset = "/results")
+figures_dir <- file.path(output_dir, "figures")
+dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
+
 bridge_cfg <- list(
   ptype     = user_cfg$ptype     %||% "ALL",
   rp_method = user_cfg$rp_method %||% "PCR",
@@ -58,7 +62,10 @@ bridge_cfg <- list(
     t3 = user_cfg$partition_years$t3 %||% 2000
   ),
   folder_paths = list(
-    instr_temp_path = "data/HadCRUT.5.1.0.0.analysis.summary_series.global.annual.csv"
+    instr_temp_path = "data/HadCRUT.5.1.0.0.analysis.summary_series.global.annual.csv",
+    # The reducer writes RP_ts.png to figures_dir; without this set, png()
+    # gets an empty filename and the upstream script halts.
+    figures_dir = figures_dir
   )
 )
 yaml::write_yaml(bridge_cfg, "/app/config.yml")
