@@ -1,42 +1,48 @@
 cff-version: 1.2.0
-message: "If you use this reconstruction, please cite the references below."
-title: "PReSto BayGMST Template"
+message: If you use this reconstruction, please cite the references below. Additionally,
+  please cite the underlying paleoclimate data sources listed in data_references.bib
+  (482 publications across 647 datasets) and the lipdverse compilation.
+title: PReSto BayGMST Template
 type: software
 authors:
+- family-names: Bagwell
+  given-names: Tyler
+- family-names: Edge
+  given-names: David
+- family-names: McKay
+  given-names: Nicholas
+- family-names: Emile-Geay
+  given-names: Julien
+url: https://github.com/paleopresto/BayGMST_R
+references:
+- type: article
+  title: 'Bayesian Global Mean Surface Temperature (BayGMST): a hierarchical state-space
+    reconstruction of the Common Era'
+  authors:
   - family-names: Bagwell
     given-names: Tyler
+  year: 2025
+  notes: 'Underlying R/Stan implementation: https://github.com/paleopresto/BayGMST_R'
+- type: article
+  title: PAGES 2k Phase 2 reduced-proxy reconstructions
+  authors:
+  - family-names: Barboza
+    given-names: Luis
+  year: 2019
+  notes: Cached reduced-proxy series used when ptype == ALL_cached_Barboza
+- type: software
+  title: The Paleoclimate Reconstruction Storehouse (PReSto) platform
+  authors:
   - family-names: Edge
     given-names: David
   - family-names: McKay
     given-names: Nicholas
+  - family-names: Khider
+    given-names: Deborah
   - family-names: Emile-Geay
     given-names: Julien
-url: "https://github.com/paleopresto/BayGMST_R"
-references:
-  - type: article
-    title: "Bayesian Global Mean Surface Temperature (BayGMST): a hierarchical state-space reconstruction of the Common Era"
-    authors:
-      - family-names: Bagwell
-        given-names: Tyler
-    year: 2025
-    notes: "Underlying R/Stan implementation: https://github.com/paleopresto/BayGMST_R"
-  - type: article
-    title: "PAGES 2k Phase 2 reduced-proxy reconstructions"
-    authors:
-      - family-names: Barboza
-        given-names: Luis
-    year: 2019
-    notes: "Cached reduced-proxy series used when ptype == ALL_cached_Barboza"
-  - type: software
-    title: "The Paleoclimate Reconstruction Storehouse (PReSto) platform"
-    authors:
-      - family-names: Edge
-        given-names: David
-      - family-names: McKay
-        given-names: Nicholas
-      - family-names: Khider
-        given-names: Deborah
-      - family-names: Emile-Geay
-        given-names: Julien
-    doi: 10.5281/zenodo.8274756
-    url: "https://zenodo.org/record/8274756"
+  doi: 10.5281/zenodo.8274756
+  url: https://zenodo.org/record/8274756
+- type: generic
+  title: Source paleoclimate data bibliography
+  notes: 482 publications across 647 datasets in data_references.bib
