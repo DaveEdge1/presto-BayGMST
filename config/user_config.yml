@@ -1,0 +1,49 @@
+# BayGMST user configuration.
+# Edited by users (or overwritten by the PReSto server on submission) to
+# tune the Bayesian reconstruction. The reconstruct job mounts this file
+# at /app/config/user_config.yml and merges it with the in-container
+# defaults at /app/config.yml.
+
+# Reduced-proxy selection.
+# When ptype == "ALL_cached_Barboza", BayGMST uses the cached reduced-proxy
+# CSVs from Barboza et al. (2019) baked into the image at
+# /app/reference_data/barboza_rps/RP_new_All_<rp_method>.csv (PReSto's
+# LiPDverse query is ignored on this path — useful for sanity runs).
+#
+# For any other ptype, the workflow runs scripts/lipd_to_baygmst.py to
+# convert the LiPDverse pickle into the PAGES2k-style proxy matrix the
+# R reducer expects, then runs utils/PAGES2k_reducedProxy_UNSC.R to
+# produce RPind.csv.
+ptype: "ALL_cached_Barboza"   # "ALL", "ALL_cached_Barboza", "lake", "speleothem", "ice", "borehole", "tree", "documents", "hybrid", "marine", "coral", "bivalve"
+
+# Method used to choose the reduced-proxy CSV (only relevant for the
+# cached Barboza path) or to compute a new RP from the LiPD-derived
+# proxy matrix.
+# Must be one of: "LASSO", "PCR", "sPCR", "SIR", "SPLS".
+# Note: SIR is still under construction in the upstream BayGMST_R code.
+rp_method: "PCR"
+
+# Stan sampler controls. iter_sampling must be >= 1000.
+stan_params:
+  iter_warmup: 500
+  iter_sampling: 1500
+  chains: 4
+  parallel_chains: 2
+
+# Reconstruction window. The script builds years <- t1:t3.
+#   t1 = first year of the full reconstruction window
+#   t2 = first year of the instrumental period (years < t2 treated as missing)
+#   t3 = final year of the full reconstruction window
+partition_years:
+  t1: 1001
+  t2: 1850
+  t3: 2000
+
+# CO2 forcing transform:  G = co2_coef * log(CO2 / c0)
+co2_params:
+  c0: 280       # preindustrial reference (ppm)
+  co2_coef: 5.35
+
+# Volcanic forcing transform:  V = -|vol_coef| * (1 - exp(-V))
+vol_params:
+  vol_coef: 25.0

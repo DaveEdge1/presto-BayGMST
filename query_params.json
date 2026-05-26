@@ -1,0 +1,11 @@
+{
+  "_comment": "Placeholder query_params.json — overwritten by the PReSto server on reconstruction submission. The presence of this file is what triggers the reconstruction workflow (see .github/workflows/baygmst.yml). For a manual local run, replace `mode: filtered` with a real lipdGenerator query, or use the cached Barboza path by setting ptype=ALL_cached_Barboza in config/user_config.yml — in that case query_params.json is still read but the LiPD pickle is unused.",
+  "mode": "filtered",
+  "uniqueID": "baygmst-local-test",
+  "filters": {
+    "archiveType": ["tree", "ice core", "lake sediment", "coral", "speleothem", "marine sediment", "bivalve", "documents"],
+    "ageMin": 0,
+    "ageMax": 1000,
+    "variableName": ["temperature"]
+  }
+}

@@ -1,0 +1,15 @@
+# Force LF for files executed inside the Linux Docker container.
+# Without this, Windows checkouts (CRLF) break #! shebangs and `set -e`
+# behavior in entrypoint.sh, and confuse Rscript / python3.
+*.sh   text eol=lf
+*.R    text eol=lf
+*.r    text eol=lf
+*.py   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.stan text eol=lf
+Dockerfile text eol=lf
+
+# Treat CSVs as text (default) but normalize line endings for reproducibility
+*.csv  text eol=lf
