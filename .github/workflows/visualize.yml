@@ -196,27 +196,5 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-      - name: Set repo About-section homepage URL
-        # GitHub doesn't auto-populate the About-section URL from a Pages
-        # deployment, and the default workflow GITHUB_TOKEN can't PATCH the
-        # repo's `homepage` field (that endpoint requires admin scope, which
-        # GITHUB_TOKEN deliberately does not carry).
-        #
-        # To make this step work, create a fine-grained personal access
-        # token with "Administration: Read and write" for this repo and
-        # store it as the secret PAGES_ADMIN_TOKEN. Without that secret,
-        # the step is a no-op and you set the About URL manually.
-        if: ${{ env.HOMEPAGE_TOKEN != '' }}
-        env:
-          HOMEPAGE_TOKEN: ${{ secrets.PAGES_ADMIN_TOKEN }}
-          PAGE_URL:       ${{ steps.deployment.outputs.page_url }}
-        run: |
-          if [ -z "$PAGE_URL" ]; then
-            echo "No page_url from deploy step; nothing to set."
-            exit 0
-          fi
-          # gh repo edit needs the URL trimmed of trailing slashes for the
-          # About-card link to render cleanly.
-          GH_TOKEN="$HOMEPAGE_TOKEN" gh repo edit "${{ github.repository }}" \
-            --homepage "${PAGE_URL%/}"
-          echo "About-section homepage set to: ${PAGE_URL%/}"
+      # Homepage URL is set by the PReSto webhook handler using the user's
+      # OAuth token (GITHUB_TOKEN lacks admin permission to update repo settings).
