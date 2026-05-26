@@ -58,6 +58,8 @@ Triggered after a successful `baygmst.yml` run (or manually). Downloads the reco
 
 > **Note:** BayGMST is a 1D global mean reconstruction, not a spatial field, so this template does **not** use the `presto-viz` reusable workflow that LMR2 / Holocene DA use. The static GitHub Pages site renders the R-generated time-series figure directly. To wire BayGMST into `presto-viz`, the NetCDF emitted by `scripts/csv_to_netcdf.py` (1D `gmst_*` variables on a `time` axis) would need a compatible visualizer template.
 
+**Auto-populating the About-section URL** (optional): the workflow's default `GITHUB_TOKEN` can't update the repo's About-card URL — that endpoint (`PATCH /repos/{owner}/{repo}.homepage`) requires admin scope, which `GITHUB_TOKEN` deliberately does not carry. To have `visualize.yml` populate the About URL after each deploy, create a fine-grained PAT with "Administration: Read and write" for this repo and store it as the secret `PAGES_ADMIN_TOKEN`. Without that secret, the step is a no-op and you set the URL manually via the gear icon next to "About".
+
 ## How to Use
 
 ### Via PReSto (intended path)
