@@ -26,7 +26,11 @@ mkdir -p "$OUT/figures" "$OUT/reconstructions"
 
 # Parse ptype out of the user config to decide whether to skip steps 1 and 2.
 # Using Python (already installed) so we don't have to ship yq.
-PTYPE=$(python3 -c "import yaml,sys; print(yaml.safe_load(open('$CONFIG')).get('ptype','ALL_cached_Barboza'))")
+PTYPE=$(python3 -c "
+import yaml
+p = yaml.safe_load(open('$CONFIG')).get('ptype', 'ALL_cached_Barboza')
+print(p if isinstance(p, str) else ','.join(str(x) for x in p))
+")
 echo "[entrypoint] ptype = $PTYPE"
 
 if [ "$PTYPE" != "ALL_cached_Barboza" ]; then

@@ -73,6 +73,15 @@ def _safe_float(x) -> float:
         return float("nan")
 
 
+# LiPD uses multi-word CamelCase archive types; PAGES2k (and user_config.yml)
+# expects short lowercase abbreviations.  Map the compound forms here.
+_ARCHIVE_NORM: dict[str, str] = {
+    "glacierice":    "ice",
+    "lakesediment":  "lake",
+    "marinesediment": "marine",
+}
+
+
 def _extract_ts(pkl_path: Path) -> list[dict]:
     """Load the legacy pickle and flatten to a list of time-series dicts.
 
@@ -111,7 +120,8 @@ def _extract_ts(pkl_path: Path) -> list[dict]:
         lat  = _safe_float(geo_props.get("latitude"))
         lon  = _safe_float(geo_props.get("longitude"))
         elev = _safe_float(geo_props.get("elevation"))
-        archive = str(ds.get("archiveType", "unknown")).lower()
+        _raw_archive = str(ds.get("archiveType", "unknown")).lower()
+        archive = _ARCHIVE_NORM.get(_raw_archive, _raw_archive)
         for pd_entry in (ds.get("paleoData") or []):
             for mt in (pd_entry.get("measurementTable") or []):
                 cols = mt.get("columns") or []
@@ -206,7 +216,8 @@ def build_csvs(pkl_path: Path, out_matrix: Path, out_metadata: Path,
             dropped += 1
             continue
 
-        archive = str(rec.get("archiveType", "unknown")).lower()
+        _raw_archive = str(rec.get("archiveType", "unknown")).lower()
+        archive = _ARCHIVE_NORM.get(_raw_archive, _raw_archive)
         proxy   = str(rec.get("paleoData_proxy", var_name)).lower()
         ptype   = f"{archive}.{proxy}" if proxy else archive
 

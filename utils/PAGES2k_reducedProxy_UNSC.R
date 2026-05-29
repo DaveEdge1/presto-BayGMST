@@ -57,11 +57,14 @@ metadataproxy =read.csv(here('data','PAGES2K_proxy_metadata_screened_1900-2000.c
 #View(metadataproxy)
 
 ### GRAB THE DESIRED PROXY TYPE FOR RP
-# "ALL", "lake", "speleothem", "ice", "borehole", "tree", "documents", "hybrid", "marine", "coral", "bivalve"
-if (cfg$ptype=='ALL'){
-  NULL # nothing to do
-}else{
-  desired_proxies <- metadataproxy[sub("\\..*$", "", metadataproxy$ptype) == cfg$ptype, ]
+# ptype may be a single string or a list (from PReSto multi-select).
+# yaml::read_yaml returns a plain character for a scalar and a list for a
+# YAML sequence; unlist() normalises both to a character vector.
+ptype_sel <- as.character(unlist(cfg$ptype))
+if (length(ptype_sel) == 1 && ptype_sel == 'ALL') {
+  NULL # nothing to do — keep every archive type
+} else {
+  desired_proxies <- metadataproxy[sub("\\..*$", "", metadataproxy$ptype) %in% ptype_sel, ]
   proxydata <- proxydata[, colnames(proxydata) %in% c('year', desired_proxies$X), drop = FALSE]
 }
 
@@ -188,7 +191,7 @@ for (k in 1:ns){   # loop over segments
     coeff <- as.numeric(a$coefficients)
     RP[timeSpan, k] <- cbind(one, pc_all) %*% coeff
   }
-  if (RP_style=="sPCR") {
+  if (RP_style=="SPCR") {
     datapc <- list(x=t(proxy_finite[rfind(timeSpan %in% calib),]),y=temp_lastc)
     trainobj <- superpc.train(datapc,type='regression')
     cvobj <- superpc.cv(trainobj,datapc)
