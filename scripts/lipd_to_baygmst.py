@@ -79,6 +79,8 @@ _ARCHIVE_NORM: dict[str, str] = {
     "glacierice":    "ice",
     "lakesediment":  "lake",
     "marinesediment": "marine",
+    "wood":          "tree",
+    "molluskshell":  "bivalve",
 }
 
 

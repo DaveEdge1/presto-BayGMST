@@ -65,6 +65,16 @@ if (length(ptype_sel) == 1 && ptype_sel == 'ALL') {
   NULL # nothing to do — keep every archive type
 } else {
   desired_proxies <- metadataproxy[sub("\\..*$", "", metadataproxy$ptype) %in% ptype_sel, ]
+  # Fail loudly rather than silently building an empty proxy matrix: an empty
+  # selection means the requested ptype(s) don't exist in the metadata (e.g. a
+  # LiPD archiveType that wasn't normalised, or a typo in user_config.yml).
+  if (nrow(desired_proxies) == 0) {
+    stop(sprintf(
+      "No proxies match ptype selection {%s}. Available archive types: {%s}.",
+      paste(ptype_sel, collapse = ", "),
+      paste(sort(unique(sub("\\..*$", "", metadataproxy$ptype))), collapse = ", ")
+    ))
+  }
   proxydata <- proxydata[, colnames(proxydata) %in% c('year', desired_proxies$X), drop = FALSE]
 }
 
