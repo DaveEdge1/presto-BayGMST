@@ -1,0 +1,329 @@
+# Why `cv.spls` fails at the fold level — and the density filter that fixes it
+
+*BayGMST RP reducer investigation*
+
+## Context
+
+The BayGMST RP reducer (`utils/PAGES2k_reducedProxy_UNSC.R`), run with
+`ptype: ALL` and `rp_method: SPLS` on the LiPD-derived `Pages2kTemperature
+2_2_0` matrix, crashes with:
+
+```
+Error in spls(x[-omit, , drop = FALSE], y[-omit, , drop = FALSE], eta = eta[i], :
+  Some of the columns of the predictor matrix have zero variance.
+Calls: ... -> cv.spls -> spls
+```
+
+We added a fix that drops zero-variance columns from the predictor matrix
+before fitting. It makes `SPLS` work for small/dense selections (`documents`,
+`coral`) **but `ALL` still fails the same way**. This document explains *why a
+global zero-variance filter cannot prevent the crash*, then develops the
+**density filter** that actually can — with the exact threshold and its
+trade-offs.
+
+**TL;DR.** `cv.spls` refits `spls()` on each cross-validation **training fold**
+(`x[-omit, ]`). A proxy column can have non-zero variance over *all*
+calibration years yet be **constant within a fold** that omits the few years
+where it is observed. The reducer's `NaN -> 0` fill turns gappy proxies into
+mostly-zero columns, so on the full `ALL` matrix essentially every fold
+contains some all-zero column. A filter computed on the *whole* matrix is blind
+to this; only a **per-column observation-count (density)** requirement — keep
+columns with more than `n/fold` observations — guarantees survival.
+
+> **Run it.** Requires R + the `spls` package (present in the BayGMST image).
+> Knit with `rmarkdown::render()`, or run the chunks via the companion
+> `cv_spls_fold_level_failure.R`:
+> `docker run --rm -v "${PWD}/notebooks:/nb:ro" --entrypoint Rscript baygmst:local /nb/cv_spls_fold_level_failure.R`
+
+
+``` r
+library(spls)
+#> Sparse Partial Least Squares (SPLS) Regression and
+#> Classification (version 2.2-3)
+```
+
+## 1. The guard, and where it lives
+
+The error text comes from inside `spls::spls()` — it validates its predictor
+matrix and `stop()`s if any column is constant.
+
+
+``` r
+writeLines(grep("zero variance", deparse(body(spls)), value = TRUE))
+#>             stop("Some of the columns of the predictor matrix have zero variance.")
+#>             stop("Some of the columns of the response matrix have zero variance.")
+```
+
+### How `cv.spls` uses it
+
+`cv.spls(x, y, fold = K, ...)` does **K-fold cross-validation**: it partitions
+the rows (calibration years) into `fold` groups and, for each held-out group
+`omit`, fits the model on the *remaining* rows:
+
+```r
+spls(x[-omit, , drop = FALSE], y[-omit, , drop = FALSE], eta = eta[i], K = ...)
+```
+
+So the zero-variance guard runs on **`x[-omit, ]`** — a *subset* of the rows —
+once per (fold × eta × K). The variance that matters is the variance **within
+each training fold**, not over the whole matrix.
+
+## 2. A reducer-like calibration design
+
+Each reducer segment builds `proxy_finite` (years × proxies), replaces
+non-finite entries with `0` (`proxy_finite[!is.finite(proxy_finite)] = 0`), and
+the SPLS branch fits `cv.spls` on the calibration rows. The `0`-fill turns a
+proxy observed in only a few calibration years into a **mostly-zero** column.
+
+We mimic that: 3 *dense* proxies (observed every year) and 5 *gappy* proxies
+(each observed in exactly **one** year, zero elsewhere).
+
+
+``` r
+set.seed(1)
+n <- 30                                  # calibration years (toy; the real run has ~151)
+y <- rnorm(n)                            # 'temperature' target
+dense  <- matrix(rnorm(n * 3), n, 3)     # 3 well-observed proxies
+sparse <- matrix(0, n, 5)                # 5 gappy proxies (NaN -> 0 filled)
+for (j in 1:5) sparse[sample(n, 1), j] <- rnorm(1)   # each non-zero in exactly ONE year
+X <- cbind(dense, sparse)
+colnames(X) <- c(paste0("dense", 1:3), paste0("sparse", 1:5))
+dim(X)
+#> [1] 30  8
+```
+
+## 3. The global zero-variance filter (our current fix)
+
+Our fix drops columns with `apply(X, 2, var) == 0`. The crucial point: a column
+non-zero in **even one** year has **non-zero variance**, so it *passes*. Every
+column here survives.
+
+
+``` r
+gv <- apply(X, 2, var)
+round(gv, 4)            # sparse columns have tiny-but-positive variance
+#>  dense1  dense2  dense3 sparse1 sparse2 sparse3 sparse4 sparse5 
+#>  0.6325  0.9223  0.7784  0.0085  0.0381  0.0413  0.0169  0.0000
+sum(gv > 0)             # how many survive the global var>0 filter
+#> [1] 8
+```
+
+## 4. A single fold makes a 'good' column constant
+
+Take the one fold that holds out the single year where `sparse1` is observed.
+In the *training* subset `X[-omit, ]`, `sparse1` is now **all zeros** — zero
+variance — even though it had positive variance over the full matrix.
+
+
+``` r
+omit <- which(sparse[, 1] != 0)          # the single year sparse1 is observed
+omit
+#> [1] 15
+Xtrain <- X[-omit, , drop = FALSE]       # what cv.spls fits spls() on for this fold
+round(apply(Xtrain, 2, var), 4)          # sparse1 is now exactly 0
+#>  dense1  dense2  dense3 sparse1 sparse2 sparse3 sparse4 sparse5 
+#>  0.6302  0.8865  0.7845  0.0000  0.0394  0.0428  0.0175  0.0000
+```
+
+## 5. `spls()` on that fold raises the exact error
+
+
+``` r
+tryCatch(spls(Xtrain, y[-omit], K = 2, eta = 0.5),
+         error = function(e) conditionMessage(e))
+#> [1] "Some of the columns of the predictor matrix have zero variance."
+```
+
+## 6. So `cv.spls` on the globally-filtered matrix still fails
+
+Across its folds, `cv.spls` eventually hits the fold that omits `sparse1`'s
+only observation — and `spls()` stops there. The global filter changed nothing,
+because it never looked *inside* a fold.
+
+
+``` r
+tryCatch(cv.spls(X, y, fold = 5, K = 1:2, eta = c(0.3, 0.6), plot.it = FALSE),
+         error = function(e) conditionMessage(e))
+#> eta = 0.3
+#> [1] "Some of the columns of the predictor matrix have zero variance."
+```
+
+## 7. Why this scales to `ALL` but not to `documents`/`coral`
+
+- **`documents` / `coral`** select a handful of proxies, most observed across
+  many calibration years. After the global zero-variance drop, what remains is
+  dense enough that no CV fold zeroes a column — so SPLS completes. (Exactly
+  what we observed: those selections now succeed.)
+- **`ALL`** feeds the full LiPD-derived matrix — ~2800 proxies per late
+  segment, the vast majority observed in only a few years and `0`-filled
+  elsewhere. With that many near-empty columns, *every* fold omits the sole
+  observation of *some* column, so *every* `(fold, eta, K)` fit trips the guard.
+  The reducer's per-segment `tryCatch` then skips all 8 segments and the all-NA
+  guard stops cleanly: **`No reduced proxy was produced for ptype 'ALL' with
+  rp_method 'SPLS'`**.
+
+The mismatch between *what the filter measures* (variance over all rows) and
+*what `spls` requires* (variance within every training fold) is the whole story.
+
+## 8. The density filter — detailed
+
+To survive K-fold CV, a column must have enough observations that **no single
+fold can remove all of them**. This section makes that precise.
+
+### 8.1 The exact condition (a pigeonhole argument)
+
+Let a column have `m` non-zero observations among `n` calibration rows (the
+other `n - m` rows are the `0`-fill). With `fold` CV groups, the largest
+held-out group has size
+
+$$h_{\max} = \lceil n / \text{fold} \rceil .$$
+
+The column is **constant in a training fold** iff that fold's training subset
+contains *no* non-zero row — i.e. iff **all `m`** non-zero rows happen to fall
+in the held-out group. By pigeonhole that is possible iff
+
+$$m \le h_{\max}.$$
+
+So a column is **safe in every fold** iff
+
+$$\boxed{\,m \ge h_{\max} + 1 = \lceil n/\text{fold}\rceil + 1\,}$$
+
+This is a *guarantee*, not a probability: if `m > h_max`, no hold-out of size
+`h_max` can contain all `m` non-zero rows, so the training subset always keeps
+at least one — the column always varies. Below the threshold, *some* random
+fold assignment will eventually blank the column (and `cv.spls`, sweeping many
+folds × eta × K, finds it).
+
+
+``` r
+n <- 30; fold <- 5
+hmax <- ceiling(n / fold)
+cat(sprintf("n=%d, fold=%d  ->  hmax = ceil(n/fold) = %d\n", n, fold, hmax))
+#> n=30, fold=5  ->  hmax = ceil(n/fold) = 6
+for (m in c(hmax - 1, hmax, hmax + 1))
+  cat(sprintf("  m=%d obs: a single fold can blank the column? %s\n", m, m <= hmax))
+#>   m=5 obs: a single fold can blank the column? TRUE
+#>   m=6 obs: a single fold can blank the column? TRUE
+#>   m=7 obs: a single fold can blank the column? FALSE
+```
+
+`m = hmax` still fails (a fold *can* hold out all `hmax` observations); only
+`m = hmax + 1` is safe.
+
+### 8.2 Count observations, not NAs — why `cleanNANs` misses these
+
+The reducer already has a `cleanNANs` step that drops columns with `> 5%`
+**`NA`** in the segment. But two things defeat it for this failure mode:
+
+1. `proxy_filled` (built earlier) replaces `NA` with `0` *from each proxy's
+   first observation onward*. By the time `cleanNANs` runs, a gappy-but-early
+   proxy has few `NA`s left — it is mostly **`0`**, not `NA` — so it passes.
+2. `cv.spls` cares about **variance**, and a `0` carries no information but is
+   not `NA`.
+
+So the right quantity is the number of **actual observations** per column. A
+practical surrogate is `colSums(X != 0)` (the `0`-fill makes unobserved entries
+exactly `0`; a genuine scaled observation is almost never exactly `0`). A more
+exact version would carry the original non-`NA` mask through the `0`-fill and
+count that.
+
+### 8.3 Choosing the threshold in the reducer
+
+`cv.spls` is called in the SPLS branch **without** a `fold` argument, so it uses
+the package default `fold = 10`. The calibration rows are
+`Xmatrix <- proxy_finite[rfind(timeSpan %in% calib), ]`, so `n` is the number of
+calibration years **in that segment** (≈151 for a full-window segment, fewer
+for late segments). Hence the per-segment threshold is
+
+```r
+n_calib <- length(rfind(timeSpan %in% calib))
+fold    <- 10
+thresh  <- ceiling(n_calib / fold) + 1      # e.g. ceil(151/10)+1 = 17
+```
+
+### 8.4 It scales
+
+A more realistic mix — 4 dense proxies among 40 gappy ones (1–3 observations
+each). Raw `cv.spls` fails; the density filter keeps only the dense columns and
+`cv.spls` completes.
+
+
+``` r
+set.seed(42)
+n <- 30; fold <- 5; hmax <- ceiling(n / fold)
+p_dense <- 4; p_gappy <- 40
+y  <- rnorm(n)
+Xd <- matrix(rnorm(n * p_dense), n, p_dense)
+Xg <- matrix(0, n, p_gappy)
+for (j in 1:p_gappy) Xg[sample(n, sample(1:3, 1)), j] <- rnorm(1)   # 1-3 obs each
+X <- cbind(Xd, Xg)
+
+cat("raw cv.spls            -> ",
+    tryCatch({ cv.spls(X, y, fold = fold, K = 1:3, eta = 0.5, plot.it = FALSE); "completed" },
+             error = function(e) paste("ERROR:", conditionMessage(e))), "\n")
+#> eta = 0.5 
+#> raw cv.spls            ->  ERROR: Some of the columns of the predictor matrix have zero variance.
+
+keep <- colSums(X != 0) >= hmax + 1
+cat(sprintf("density filter (>= %d obs) keeps %d of %d cols\n", hmax + 1, sum(keep), ncol(X)))
+#> density filter (>= 7 obs) keeps 4 of 44 cols
+cat("density-filtered cv.spls -> ",
+    tryCatch({ cv.spls(X[, keep, drop = FALSE], y, fold = fold, K = 1:3, eta = 0.5, plot.it = FALSE); "completed" },
+             error = function(e) paste("ERROR:", conditionMessage(e))), "\n")
+#> eta = 0.5 
+#> 
+#> Optimal parameters: eta = 0.5, K = 3
+#> density-filtered cv.spls ->  completed
+```
+
+### 8.5 Implementing it in the reducer
+
+Scope it to the variance-sensitive methods so PCR/LASSO — and the bit-for-bit
+`ALL`/PCR output — are untouched. Replace the global `var > 0` drop with a
+density filter on the calibration rows:
+
+```r
+if (RP_style %in% c("SPLS", "sPCR", "SPCR")) {
+  calib_rows <- rfind(timeSpan %in% calib)
+  nobs       <- colSums(proxy_finite[calib_rows, , drop = FALSE] != 0)
+  fold       <- 10                                  # cv.spls default
+  keep       <- nobs >= ceiling(length(calib_rows) / fold) + 1
+  proxy_finite <- proxy_finite[, keep, drop = FALSE]
+}
+```
+
+If fewer than 2 columns survive, the existing `nprox[k] < 2` guard skips the
+segment; if no segment survives, the all-NA guard stops cleanly.
+
+### 8.6 Trade-offs and scientific implications
+
+- **It changes the proxy network feeding SPLS.** The filter discards proxies
+  with sparse calibration-window coverage. For SPLS (a sparse-regression method)
+  that is arguably appropriate, but the **minimum-coverage threshold is a
+  modeling choice** — `⌈n/fold⌉ + 1` is the *minimum* that avoids the crash; a
+  larger, science-driven minimum (e.g. "observed in ≥ X% of the calibration
+  window") may be preferable.
+- **Method-scoped.** PCR (`prcomp`) and LASSO (`glmnet`) tolerate constant/sparse
+  columns, so they should *not* get this filter — keeping their results
+  unchanged.
+- **Coverage cost.** Very sparse archives (e.g. `documents`) may lose most of
+  their proxies, leaving too few for any segment — in which case the clean
+  all-NA stop is the correct outcome (use PCR/LASSO or a denser selection).
+- **Necessary, and for this failure mode sufficient.** The threshold provably
+  prevents the *all-zero-column* fold failure. It does not guard against a
+  hypothetical constant-but-nonzero column, which does not arise from the
+  `0`-fill but could be added defensively with a within-fold variance check.
+
+## 9. Conclusion
+
+1. The CI error is a **fold-level** property of `cv.spls`, not a whole-matrix
+   property: `spls()` rejects any constant predictor column, and it runs on each
+   CV *training* subset `x[-omit, ]`.
+2. A global `var > 0` filter **cannot** fix `ALL`/SPLS — a one-observation
+   column passes it but is blanked by the fold that omits that observation; with
+   thousands of `0`-filled proxies, some such column exists in every fold.
+3. It **does** fix small/dense selections, where survivors are dense enough.
+4. Making `ALL`/SPLS actually run needs a **per-column density prefilter**
+   (`m ≥ ⌈n/fold⌉ + 1`), scoped to SPLS/sPCR; the threshold is a modeling choice.
+5. The safe default, absent that choice, is the per-segment `tryCatch` + all-NA
+   guard: a clear, explained stop instead of a cryptic mid-pipeline crash.
