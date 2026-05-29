@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import pickle
+import re
 import sys
 from pathlib import Path
 
@@ -71,6 +72,29 @@ def _safe_float(x) -> float:
         return float(x)
     except (TypeError, ValueError):
         return float("nan")
+
+
+# Proxy IDs become both the proxy-matrix column headers and the metadata$X
+# values. The R reducer reads the matrix with read.csv(check.names = TRUE),
+# which runs make.names() on the *header* (but not on metadata$X). LiPD dataset
+# names carry hyphens (e.g. "Ocn-Mayotte.Zinke.2008"), which make.names rewrites
+# to dots in the header only — so `colnames(proxydata) %in% metadata$X` matches
+# zero columns and any archive-subset selection collapses to an empty matrix.
+# Emit make.names-invariant IDs here so both sides stay identical.
+_R_INVALID = re.compile(r"[^0-9A-Za-z._]")
+
+
+def _r_safe_name(s: str) -> str:
+    """Return `s` transformed so R's make.names() leaves it unchanged.
+
+    make.names() replaces every character outside [A-Za-z0-9._] with '.', and
+    prefixes 'X' unless the name starts with a letter or a dot-not-followed-by-
+    a-digit. We apply the same rules so the id survives read.csv() verbatim.
+    """
+    s = _R_INVALID.sub(".", s)
+    if not re.match(r"(?:[A-Za-z]|\.(?![0-9]))", s):
+        s = "X" + s
+    return s
 
 
 # LiPD uses multi-word CamelCase archive types; PAGES2k (and user_config.yml)
@@ -205,12 +229,15 @@ def build_csvs(pkl_path: Path, out_matrix: Path, out_metadata: Path,
             dropped += 1
             continue
 
-        rid = f"{ds_name}__{var_name}"
+        # make.names-safe so the matrix header survives read.csv() and still
+        # matches metadata$X in the R reducer (see _r_safe_name). Dedupe on the
+        # sanitised form, since distinct raw ids can collapse to the same one.
+        rid = _r_safe_name(f"{ds_name}__{var_name}")
         base = rid
         i = 1
         while rid in seen_ids:
             i += 1
-            rid = f"{base}__{i}"
+            rid = f"{base}.{i}"
         seen_ids.add(rid)
 
         series = _aggregate_to_annual(years, vals, year_axis)
