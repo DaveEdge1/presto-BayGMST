@@ -33,7 +33,11 @@ jobs:
       - name: Read ptype from user_config.yml
         id: ptype
         run: |
-          PTYPE=$(python3 -c "import yaml; print(yaml.safe_load(open('config/user_config.yml'))['ptype'])")
+          PTYPE=$(python3 -c "
+          import yaml
+          p = yaml.safe_load(open('config/user_config.yml')).get('ptype', 'ALL_cached_Barboza')
+          print(p if isinstance(p, str) else ','.join(str(x) for x in p))
+          ")
           echo "ptype=$PTYPE" >> $GITHUB_OUTPUT
           if [ "$PTYPE" = "ALL_cached_Barboza" ]; then
             echo "use_lipd=false" >> $GITHUB_OUTPUT
@@ -170,7 +174,11 @@ jobs:
       - name: Read ptype from user_config.yml
         id: ptype
         run: |
-          PTYPE=$(python3 -c "import yaml; print(yaml.safe_load(open('config/user_config.yml'))['ptype'])")
+          PTYPE=$(python3 -c "
+          import yaml
+          p = yaml.safe_load(open('config/user_config.yml')).get('ptype', 'ALL_cached_Barboza')
+          print(p if isinstance(p, str) else ','.join(str(x) for x in p))
+          ")
           echo "ptype=$PTYPE" >> $GITHUB_OUTPUT
           if [ "$PTYPE" = "ALL_cached_Barboza" ]; then
             echo "use_lipd=false" >> $GITHUB_OUTPUT
@@ -228,7 +236,9 @@ jobs:
                       yield from flatten(v, key)
                   else:
                       yield key, v
-          nested = {'presto_config': {k: {'value': str(v)} for k, v in flatten(flat)}}
+          def to_str(v):
+              return ', '.join(str(x) for x in v) if isinstance(v, list) else str(v)
+          nested = {'presto_config': {k: {'value': to_str(v)} for k, v in flatten(flat)}}
           with open('results/configs.yml', 'w') as f:
               yaml.dump(nested, f, default_flow_style=False)
           "

@@ -55,7 +55,7 @@ dir.create(figures_dir, recursive = TRUE, showWarnings = FALSE)
 
 bridge_cfg <- list(
   ptype     = user_cfg$ptype     %||% "ALL",
-  rp_method = user_cfg$rp_method %||% "PCR",
+  rp_method = toupper(user_cfg$rp_method %||% "PCR"),
   partition_years = list(
     t1 = user_cfg$partition_years$t1 %||% 1,
     t2 = user_cfg$partition_years$t2 %||% 1850,

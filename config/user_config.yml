@@ -14,13 +14,21 @@
 # convert the LiPDverse pickle into the PAGES2k-style proxy matrix the
 # R reducer expects, then runs utils/PAGES2k_reducedProxy_UNSC.R to
 # produce RPind.csv.
-ptype: "ALL"                  # "ALL", "ALL_cached_Barboza", "lake", "speleothem", "ice", "borehole", "tree", "documents", "hybrid", "marine", "coral", "bivalve"
+#
+# ptype may be a single string or a list of archive types:
+#   ptype: "coral"                  # single type
+#   ptype: ["coral", "tree"]        # multiple types (PReSto multi-select)
+# Valid types: "ALL", "ALL_cached_Barboza", "lake", "speleothem", "ice",
+#              "borehole", "tree", "documents", "hybrid", "marine",
+#              "coral", "bivalve"
+ptype: "ALL"
 
 # Method used to choose the reduced-proxy CSV (only relevant for the
 # cached Barboza path) or to compute a new RP from the LiPD-derived
 # proxy matrix.
-# Must be one of: "LASSO", "PCR", "sPCR", "SIR", "SPLS".
+# Must be one of: "LASSO", "PCR", "SPCR", "SIR", "SPLS" (case-insensitive).
 # Note: SIR is still under construction in the upstream BayGMST_R code.
+# Note: SPCR is coerced to PCR for the cached-RP lookup (no separate Barboza CSV).
 rp_method: "PCR"
 
 # Stan sampler controls. iter_sampling must be >= 1000.

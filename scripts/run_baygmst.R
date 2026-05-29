@@ -32,8 +32,15 @@ user_cfg <- yaml::read_yaml(user_config_path)
 # fold in cmdstan's actual install location.
 cmdstan_path_val <- cmdstanr::cmdstan_path()
 
+# Normalize rp_method to uppercase at the entry point so all downstream code
+# (load_proxies match.arg, RPind.csv staging) sees the canonical form.
+# Coerce SPCR -> PCR: sPCR is valid in the reducer but the cached-RP loader
+# only accepts LASSO/PCR/SIR/SPLS, and the Barboza directory has no SPCR CSV.
+rp_method_norm <- toupper(user_cfg$rp_method %||% "PCR")
+if (rp_method_norm == "SPCR") rp_method_norm <- "PCR"
+
 cfg <- list(
-  rp_method = user_cfg$rp_method %||% "PCR",
+  rp_method = rp_method_norm,
   ptype     = user_cfg$ptype     %||% "ALL_cached_Barboza",
   stan_params = list(
     iter_warmup   = user_cfg$stan_params$iter_warmup   %||% 500,
@@ -75,17 +82,12 @@ dir.create(cfg$folder_paths$reconstruction_dir, recursive = TRUE, showWarnings =
 # ALL_cached_Barboza, the upstream load_proxies() picks up the live RP via
 # its safe, well-tested cache loader.
 if (file.exists("/app/RPind.csv")) {
-  rp_method_safe <- match.arg(toupper(cfg$rp_method),
-                              c("LASSO", "PCR", "SIR", "SPLS", "SPCR"))
-  # SPCR isn't a load_proxies match.arg target — coerce to PCR if needed.
-  if (rp_method_safe == "SPCR") rp_method_safe <- "PCR"
   target <- file.path(cfg$folder_paths$barboza_rps_path,
-                      sprintf("RP_new_All_%s.csv", rp_method_safe))
+                      sprintf("RP_new_All_%s.csv", cfg$rp_method))
   dir.create(dirname(target), showWarnings = FALSE, recursive = TRUE)
   file.copy("/app/RPind.csv", target, overwrite = TRUE)
   message(sprintf("[run_baygmst.R] LiPD-derived RP staged at %s", target))
-  cfg$ptype     <- "ALL_cached_Barboza"
-  cfg$rp_method <- rp_method_safe
+  cfg$ptype <- "ALL_cached_Barboza"
 }
 
 # The upstream script does `yaml::read_yaml("config.yml")` from the working
