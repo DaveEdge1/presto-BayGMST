@@ -164,17 +164,17 @@ Let a column have `m` non-zero observations among `n` calibration rows (the
 other `n - m` rows are the `0`-fill). With `fold` CV groups, the largest
 held-out group has size
 
-$$h_{\max} = \lceil n / \text{fold} \rceil .$$
+> **h_max = ceil(n / fold)** &nbsp; — the size of the largest hold-out group
 
 The column is **constant in a training fold** iff that fold's training subset
 contains *no* non-zero row — i.e. iff **all `m`** non-zero rows happen to fall
 in the held-out group. By pigeonhole that is possible iff
 
-$$m \le h_{\max}.$$
+> **m <= h_max**
 
 So a column is **safe in every fold** iff
 
-$$\boxed{\,m \ge h_{\max} + 1 = \lceil n/\text{fold}\rceil + 1\,}$$
+> **m >= h_max + 1 = ceil(n / fold) + 1**
 
 This is a *guarantee*, not a probability: if `m > h_max`, no hold-out of size
 `h_max` can contain all `m` non-zero rows, so the training subset always keeps
