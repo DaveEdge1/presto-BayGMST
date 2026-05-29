@@ -76,6 +76,15 @@ if (length(ptype_sel) == 1 && ptype_sel == 'ALL') {
     ))
   }
   proxydata <- proxydata[, colnames(proxydata) %in% c('year', desired_proxies$X), drop = FALSE]
+  # Need >= 2 proxy columns to build a multi-proxy composite. A single matched
+  # proxy (or matrix headers that don't line up with metadata$X) would otherwise
+  # crash cryptically in the segment loop below.
+  if ((ncol(proxydata) - 1) < 2) {
+    stop(sprintf(
+      "ptype selection {%s} yields %d proxy column(s); need >= 2.",
+      paste(ptype_sel, collapse = ", "), ncol(proxydata) - 1
+    ))
+  }
 }
 
 #View(proxydata)
@@ -137,11 +146,16 @@ for (i in 1:np){
 
 ##  MAKE A TIME-DEPENDENT COMPOSITE
 chunk = 250 # define  segment length
-ns = ny/chunk  # number of segments
+ns = ceiling(ny / chunk)  # number of 250-yr segments tiling [tStart, tEnd]
 calib = c(t2:t3)#Define calibration year
-RP = matrix(NA,ny,ns)#Initialise the reduced proxies
+# RP rows are indexed by absolute position in tce (timeSpan = which(tce >= tMin),
+# up to length(tce)). Allocate on the full year axis (nce), not ny, which is
+# < length(tce) for any archive subset (earliest proxy starts after year 1) ->
+# otherwise RP[timeSpan, k] is "subscript out of bounds".
+RP = matrix(NA,nce,ns)#Initialise the reduced proxies
 nprox= matrix(0,1,ns)#Initialise nprox that is later used to store number of proxies used in each segmentation
-temp_lastc <- temp[which(temp[,1]%in%calib),2] #last century temperature
+# temp_lastc (calibration-period temperatures) is computed per-segment in the
+# loop: a late-starting segment overlaps only part of [t2, t3].
 
 #evalues=matrix(1,1,npcs)#Initialise a matrix to store the eigenvalues of PCs
 coefflist <- list()
@@ -164,16 +178,34 @@ for (k in 1:ns){   # loop over segments
   timeSpan  = rfind(tce>=tMin)
   nt = length(timeSpan)
   one=matrix(1,nt,1)#Initialise a ny*1 one matrix that can be later appended to PC matrix
-  proxy_finite= proxy_filled[timeSpan,segProxies]
+  # Per-segment calibration temperatures: the calib years present in this segment
+  # (tce position == year), so temp_lastc lines up with calib_idx below.
+  seg_calib  = timeSpan[timeSpan %in% calib]
+  temp_lastc = temp[temp[,1] %in% seg_calib, 2]
+  # drop = FALSE keeps a single-proxy segment a matrix (else apply(MARGIN=2) fails
+  # with "dim(X) must have a positive length").
+  proxy_finite= proxy_filled[timeSpan,segProxies, drop = FALSE]
   cleanNANs <- apply(X = proxy_finite,MARGIN = 2,function(x) sum(is.na(x))/dim(proxy_finite)[1])<0.05
-  proxy_finite <- proxy_finite[,cleanNANs]
+  proxy_finite <- proxy_finite[,cleanNANs, drop = FALSE]
   time_calib <- rfind(timeSpan %in% calib)
-  proxy_finite_calib= proxy_finite[time_calib,]
+  proxy_finite_calib= proxy_finite[time_calib, , drop = FALSE]
   cleanNANs_calib <- apply(X = proxy_finite_calib,MARGIN = 2,function(x) sum(is.na(x))/dim(proxy_finite_calib)[1])<0.05
-  proxy_finite <- proxy_finite[,cleanNANs_calib]
+  proxy_finite <- proxy_finite[,cleanNANs_calib, drop = FALSE]
   proxy_finite[!is.finite(proxy_finite)]=0
   nprox[k] = dim(proxy_finite)[2]
-  
+
+  # Skip a segment with < 2 usable proxies (degenerate fit); its RP column stays
+  # NA, which the final na.rm row-mean composite tolerates.
+  if (nprox[k] < 2) {
+    message(sprintf("[RP] segment %d has %d usable proxy(ies) (<2); skipping.", k, nprox[k]))
+    next
+  }
+
+  # Wrap the per-segment fit so a numerical failure in any method (e.g. superpc
+  # for SPCR, dr for SIR) is logged and the segment skipped rather than aborting
+  # the whole run. The final all-NA guard catches the case where none succeed.
+  tryCatch({
+
   if (RP_style == "PCR") {
     pca <- prcomp(proxy_finite, center = FALSE, scale. = FALSE)
     calib_idx <- rfind(timeSpan %in% calib)
@@ -257,12 +289,26 @@ for (k in 1:ns){   # loop over segments
     SPLSmodel <- spls(x = Xmatrix,y = temp_lastc,K = cvspls$K.opt,eta = cvspls$eta.opt)
     RP[timeSpan,k] <- predict.spls(SPLSmodel,newx = proxy_finite)
   }
+
+  }, error = function(e) {
+    message(sprintf("[RP] segment %d (%s, %d proxies) failed: %s; skipping (RP column left NA).",
+                    k, RP_style, nprox[k], conditionMessage(e)))
+  })
 }
 
-colnames(RP) <- paste0('RP',seq(1,8))
-RP <- data.frame(Year=1:2000,RP)
+# If no segment populated RP it is entirely NA and the composite below would be
+# all-NaN. Stop clearly rather than emit a degenerate RPind that breaks the
+# downstream model (covers a selection too sparse to reduce, or an rp_method
+# that matched no branch).
+if (all(is.na(RP))) {
+  stop(sprintf("No reduced proxy was produced for ptype '%s' with rp_method '%s': every segment was too sparse (<2 proxies) or rp_method matched no known method (PCR/LASSO/SIR/SPLS/SPCR).",
+               paste(ptype_sel, collapse = ", "), RP_style))
+}
 
-RPn <- RP %>% gather(key = 'RPNumber',value = 'Value',RP1:RP8)
+colnames(RP) <- paste0('RP',seq_len(ns))   # ns segments, not a hardcoded 8
+RP <- data.frame(Year=tce,RP)
+
+RPn <- RP %>% gather(key = 'RPNumber',value = 'Value',-Year)
 
 plotcombined <- ggplot(data = RPn,mapping = aes(x = Year,y = Value))+
   geom_line(mapping = aes(color=RPNumber))+
