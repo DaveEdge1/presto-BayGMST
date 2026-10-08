@@ -55,6 +55,15 @@ RUN R -e "install.packages(c( \
         'fda','glmnet','spls','dr','superpc','matrixStats','parallel' \
     ), Ncpus = 2)"
 
+# ── BayGMST R package ───────────────────────────────────────────────────────
+# Installed from paleopresto/BayGMST_R at the commit submitted to CRAN as
+# 0.1.0; switch to install.packages("BayGMST") once CRAN accepts it. Its Stan
+# models compile at install time (instantiate), against the cmdstan above.
+ARG BAYGMST_REF=4d32351
+RUN R -e "install.packages(c('remotes','instantiate'), Ncpus = 2)" && \
+    R -e "remotes::install_github('paleopresto/BayGMST_R@${BAYGMST_REF}', upgrade = 'never', Ncpus = 2)" && \
+    R -e "library(BayGMST); stopifnot(instantiate::stan_cmdstan_exists())"
+
 # ── Python deps for the LiPD adapter ────────────────────────────────────────
 # scripts/lipd_to_baygmst.py uses the original `lipd` (LiPD-utilities)
 # library — same one Holocene DA's da_load_proxies.py uses — because it

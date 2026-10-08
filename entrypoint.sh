@@ -4,9 +4,9 @@
 # Pipeline:
 #   1. (optional) Convert LiPD pickle → PAGES2k-style proxy matrix CSVs
 #      [skipped when ptype == ALL_cached_Barboza, since cached RPs are used]
-#   2. (optional) Run the R reducer to produce RPind.csv from that matrix
-#      [skipped when ptype == ALL_cached_Barboza]
-#   3. Run BayGMST_v1.0.R to fit the Stan model and write outputs
+#   2-3. Reduce the proxy matrix and fit the model with the BayGMST package
+#      (scripts/run_package.R). BAYGMST_LEGACY=1 runs the pre-package
+#      reducer + BayGMST_v1.0.R instead.
 #   4. Convert the CSV reconstruction to a 1D NetCDF for downstream viz
 #
 # All paths are controlled by /app/config/user_config.yml plus the env vars
@@ -44,14 +44,23 @@ if [ "$PTYPE" != "ALL_cached_Barboza" ]; then
         --out-matrix   "$REFDATA/PAGES2K_proxy_matrix_screened_1900-2000.csv" \
         --out-metadata "$REFDATA/PAGES2K_proxy_metadata_screened_1900-2000.csv"
 
-    echo "[entrypoint] Step 2: R reducer → RPind.csv"
-    # The reducer reads config.yml via here::here(), so we hand it one at
-    # /app/config.yml that points at the (mounted) user_config.yml values.
-    Rscript /app/scripts/run_reducer.R
+    if [ "${BAYGMST_LEGACY:-0}" = "1" ]; then
+        echo "[entrypoint] Step 2: R reducer → RPind.csv (legacy scripts)"
+        # The reducer reads config.yml via here::here(), so we hand it one at
+        # /app/config.yml that points at the (mounted) user_config.yml values.
+        Rscript /app/scripts/run_reducer.R
+    fi
 fi
 
-echo "[entrypoint] Step 3: Stan / BayGMST fit"
-Rscript /app/scripts/run_baygmst.R
+if [ "${BAYGMST_LEGACY:-0}" = "1" ]; then
+    echo "[entrypoint] Step 3: Stan / BayGMST fit (legacy R_scripts/BayGMST_v1.0.R)"
+    Rscript /app/scripts/run_baygmst.R
+else
+    # The BayGMST package (CRAN 0.1.0) reduces the proxy matrix, fits and
+    # writes the same outputs; see scripts/run_package.R.
+    echo "[entrypoint] Steps 2-3: reduce + fit with the BayGMST package"
+    Rscript /app/scripts/run_package.R
+fi
 
 echo "[entrypoint] Step 4: CSV → 1D NetCDF for visualization"
 python3 /app/scripts/csv_to_netcdf.py \
