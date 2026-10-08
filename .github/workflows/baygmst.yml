@@ -78,6 +78,15 @@ jobs:
           curl -L -f "$PICKLE_URL" -o lipd_legacy.pkl
           ls -lh lipd_legacy.pkl
 
+      # POOL PATHWAY: a pinned PReSto data pool (paleopresto/presto-recipes
+      # pools/), selected from all of LiPDverse by the PAGES 2k (2017) criteria and
+      # deduplicated; fetched and checksum-verified by the fetch-pool action.
+      - name: Fetch PReSto pool bundle
+        if: steps.ptype.outputs.use_lipd == 'true' && steps.pathway.outputs.mode == 'bundle'
+        uses: paleopresto/presto-recipes/.github/actions/fetch-pool@pools
+        with:
+          format: pickle
+
       # PATH B: filtered query via lipdGenerator container.
       - name: Generate LiPD data from query
         if: steps.ptype.outputs.use_lipd == 'true' && steps.pathway.outputs.mode == 'filtered'
