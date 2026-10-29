@@ -28,6 +28,7 @@ The original BayGMST_R code is at [paleopresto/BayGMST_R](https://github.com/pal
 | `scripts/run_reducer.R`        | Container-side wrapper around the R reducer |
 | `scripts/lipd_to_baygmst.py`   | LiPD legacy pickle → PAGES2k-format proxy matrix CSVs |
 | `scripts/csv_to_netcdf.py`     | Reconstruction CSV → 1D CF-NetCDF for downstream viz |
+| `web/reconstruction.html`      | Interactive Plotly viewer published to GitHub Pages |
 | `reference_data/`              | Forcings, instrumental HadCRUT, cached Barboza RPs, PAGES2k reference matrix |
 | `.github/workflows/baygmst.yml`| Two-job CI pipeline (data prep + reconstruct) |
 | `.github/workflows/visualize.yml` | Builds a GitHub Pages site from reconstruction artifacts |
@@ -54,9 +55,9 @@ Two-job pipeline triggered by a push to `query_params.json` or manual dispatch:
 
 ### `visualize.yml` — Visualization
 
-Triggered after a successful `baygmst.yml` run (or manually). Downloads the reconstruction artifact and publishes the R-generated PNGs + reconstruction CSV/NetCDF to a static GitHub Pages site with the standard PReSto tile UI.
+Triggered after a successful `baygmst.yml` run (or manually). Downloads the reconstruction artifact and publishes it to GitHub Pages with the standard PReSto tile UI. The main tile opens `reconstruction.html` (from `web/`), an interactive view of the GMST series with its 68%/95% bands and HadCRUT5, posterior densities of the model parameters (from `posterior_draws.csv`), and the posterior summary table. The R-generated PNGs, CSVs and NetCDF are published alongside for download.
 
-> **Note:** BayGMST is a 1D global mean reconstruction, not a spatial field, so this template does **not** use the `presto-viz` reusable workflow that LMR2 / Holocene DA use. The static GitHub Pages site renders the R-generated time-series figure directly. To wire BayGMST into `presto-viz`, the NetCDF emitted by `scripts/csv_to_netcdf.py` (1D `gmst_*` variables on a `time` axis) would need a compatible visualizer template.
+> **Note:** BayGMST is a 1D global mean reconstruction, not a spatial field, so this template does **not** use the `presto-viz` reusable workflow that LMR2 / Holocene DA use. The Pages site uses its own 1D viewer instead; `web/reconstruction.html` also accepts `?data=<url of gmst_reconstruction_data.csv>`, so the same page can display any run's published data. To wire BayGMST into `presto-viz`, the NetCDF emitted by `scripts/csv_to_netcdf.py` (1D `gmst_*` variables on a `time` axis) would need a compatible visualizer template.
 
 The repo's About-section URL is populated by the PReSto webhook handler using the submitting user's OAuth token (the default workflow `GITHUB_TOKEN` lacks admin scope to update repo settings, so the template doesn't try). For repos created outside PReSto, set the URL once via the ⚙ next to "About".
 
@@ -90,7 +91,7 @@ docker run --rm \
   baygmst:local
 ```
 
-Outputs land in `results/figures/*.png`, `results/reconstructions/gmst_reconstruction_data.csv`, and `results/reconstructions/gmst_reconstruction.nc`.
+Outputs land in `results/figures/*.png`, `results/reconstructions/gmst_reconstruction_data.csv`, `results/reconstructions/posterior_draws.csv`, and `results/reconstructions/gmst_reconstruction.nc`.
 
 ## Citing
 

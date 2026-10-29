@@ -101,4 +101,16 @@ message("[run_baygmst.R] folder_paths:")
 str(cfg$folder_paths)
 
 source("/app/R_scripts/BayGMST_v1.0.R", echo = FALSE)
+
+# Save the parameter draws behind the posterior-density panels so the
+# interactive viewer (web/reconstruction.html) can redraw them. The upstream
+# script leaves draws_df in this environment but doesn't write it out.
+if (exists("draws_df") && exists("stan_params")) {
+  draws_out <- as.data.frame(draws_df)[, c(".chain", stan_params)]
+  draws_out[stan_params] <- lapply(draws_out[stan_params], signif, digits = 6)
+  write.csv(draws_out,
+            file.path(cfg$folder_paths$reconstruction_dir, "posterior_draws.csv"),
+            row.names = FALSE)
+  message("[run_baygmst.R] wrote posterior_draws.csv")
+}
 message("[run_baygmst.R] done.")
