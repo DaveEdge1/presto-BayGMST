@@ -105,6 +105,23 @@ jobs:
           cp -r ./viz/reconstructions/. ./pages/data/ 2>/dev/null || true
           cp images/*.png ./pages/images/ 2>/dev/null || true
 
+          # Interactive viewer. It reads data/gmst_reconstruction_data.csv
+          # plus, when present, posterior_draws.csv, fit_post_summaries.csv
+          # and run_config.json from the same folder.
+          cp web/reconstruction.html ./pages/reconstruction.html
+
+          # Flatten the run's configs.yml ({presto_config: {key: {value}}})
+          # into {key: value} JSON for the viewer's subtitle.
+          if [ -f ./viz/configs.yml ]; then
+            python3 -c "
+          import json, yaml
+          with open('./viz/configs.yml') as f:
+              cfg = yaml.safe_load(f).get('presto_config', {})
+          with open('./pages/data/run_config.json', 'w') as f:
+              json.dump({k: v.get('value') for k, v in cfg.items()}, f, indent=2)
+          " || echo "Could not convert configs.yml; viewer will infer the subtitle from the CSV"
+          fi
+
           # Index page: tile layout matching holocene_da's pattern.
           cat > ./pages/index.html <<'HTMLEOF'
           <!DOCTYPE html>
@@ -149,9 +166,9 @@ jobs:
             </header>
             <main>
               <div class="tiles">
-                <a class="tile" href="figures/reconstruction_ts.png">
+                <a class="tile" href="reconstruction.html">
                   <img src="figures/reconstruction_ts.png" alt="Reconstruction time series">
-                  <span>Reconstruction Time Series</span>
+                  <span>Interactive Reconstruction</span>
                 </a>
                 <a class="tile" href="data/gmst_reconstruction_data.csv">
                   <img src="images/visualization.png" alt="Download data" onerror="this.style.display='none'">
